@@ -237,22 +237,22 @@
   };
   //于光标所在位置插入文本
   Edit.prototype.insertContent = function (index, content) {
-    var iframeWin = getWin(index);
+    var iframeWin = getWin(index), tempDiv = $('<div></div>');
+    tempDiv.html(content);
+    content = tempDiv.text();
     if(!iframeWin[0]) return;
-    var oriHTML = iframeWin[0].document.body.innerHTML;
-    if (!oriHTML || !oriHTML.length) {
-      return this.setContent(index, content.replace(/^([^<]+)/,'<p>$1</p>').replace(/([^>]+)$/,'<p>$1</p>'), true);
+    var range = Range(iframeWin[0].document), container = range.endContainer;
+    if(range.endContainer.insertData){
+      range.endContainer.insertData(range.endOffset, content);
+    }else if(range.endContainer != iframeWin[0].document){
+      range.endContainer.innerText = range.endContainer.innerText.slice(0, range.endOffset) + content + range.endContainer.innerText.slice(range.endOffset);
+    }else{
+      iframeWin[0].document.body.innerText = iframeWin[0].document.body.innerText.slice(0, range.endOffset) + content + iframeWin[0].document.body.innerText.slice(range.endOffset);
+      container = iframeWin[0].document.body.childNodes[0];
     }
-    var selection = iframeWin[0].document.getSelection(), range = selection.rangeCount ? selection.getRangeAt(0) : null;
-    if (!range || !range.endContainer) {
-
-      return this.setContent(index, content, true);
-    }
-    if (range.endContainer.insertData) {
-      range.endContainer.insertData(range.endOffset, content)
-    } else {
-      this.setContent(index, content, true)
-    }
+    var s = iframeWin[0].getSelection();
+    s.removeAllRanges();
+    s.addRange(setRange(iframeWin[0].document, container, range.endOffset + content.length, container, range.endOffset + content.length));
   };
   //将编辑器内容同步到textarea（一般用于异步提交时）
   Edit.prototype.sync = function(index){
@@ -288,6 +288,11 @@
         ,'img{display: inline-block; border: none; vertical-align: middle;}'
         ,'pre{margin: 10px 0; padding: 10px; line-height: 20px; border: 1px solid #ddd; border-left-width: 6px; background-color: #F2F2F2; color: #333; font-family: Courier New; font-size: 12px;}'
         ,'blockquote{border-style: solid; border-width: 1px 1px 1px 5px; border-color: #e6e6e6; margin: 5px; padding: 15px; line-height: 22px; border-radius: 0 2px 2px 0;}'
+        ,'table{width: 100%; background-color: #fff; color: #666; margin: 10px 0; border-collapse: collapse; border-spacing: 0;}'
+        ,'table thead tr{background-color: #f2f2f2; transition: all .3s; -webkit-transition: all .3s;}'
+        ,'table th{position: relative; padding: 9px 15px; min-height: 20px; line-height: 20px; font-size: 14px; border-width: 1px; border-style: solid; border-color: #e6e6e6; text-align: left; font-weight: 400;}'
+        ,'table tbody tr{transition: all .3s; -webkit-transition: all .3s;}'
+        ,'table td{position: relative; padding: 9px 15px; min-height: 20px; line-height: 20px; font-size: 14px; border-width: 1px; border-style: solid; border-color: #e6e6e6;}'
         ,(set.customCSS || '')
         ,'</style>'].join(''))
       ,body = conts.find('body');
@@ -400,12 +405,20 @@
   ,Range = function(iframeDOM){
     return iframeDOM.selection 
     ? iframeDOM.selection.createRange()
-    : iframeDOM.getSelection().getRangeAt(0);
+    : (iframeDOM.getSelection().rangeCount ? iframeDOM.getSelection().getRangeAt(0) : iframeDOM.createRange());
   }
   
   //当前Range对象的endContainer兼容性处理
   ,getContainer = function(range){
     return range.endContainer || range.parentElement().childNodes[0]
+  }
+
+  //设置一个新的Range
+  ,setRange = function(iframeDOM, stCon, stOff, enCon, enOff){
+    var r = iframeDOM.createRange();
+    r.setStart(stCon, stOff);
+    r.setEnd(enCon, enOff);
+    return r;
   }
   
   //在选区插入内联元素
@@ -451,8 +464,15 @@
     
     tools.find('>i').removeClass(CHECK);
     item('unlink').addClass(ABLED);
+    item('table').show();
+    item('table-unit').removeClass(CHECK).hide();
 
     var isBlockDetected = false;
+
+    if(container.tagName && (container.tagName.toLowerCase() === 'td' || container.tagName.toLowerCase() === 'th')){
+      item('table').hide();
+      item('table-unit').show().addClass(CHECK);
+    }
 
     $(container).parents().each(function(){
       var tagName = this.tagName.toLowerCase()
@@ -493,6 +513,11 @@
       if(tagName === 'a'){
         item('link').addClass(CHECK);
         item('unlink').removeClass(ABLED);
+      }
+
+      if(tagName === 'td' || tagName === 'th'){
+        item('table').hide();
+        item('table-unit').show().addClass(CHECK);
       }
 
       if(item('formatblock').find('option[value="'+tagName+'"]').length && !isBlockDetected){
@@ -536,6 +561,124 @@
         }, function (index) {
 
         });
+      },
+      //查找与替换
+      searchreplace: function () {
+        var searchText = '', searchNodeList = [], searchNodeLengthList = [], rangeList = [], curIndex = 0,
+        preorderTraversal = function(node){
+          var list = [];
+          if(!node.childNodes || !node.childNodes.length){
+            list.push(node);
+          }else{
+            var cNode = node.childNodes;
+            for(var i=0; i<cNode.length; i++){
+              list = list.concat(preorderTraversal(cNode[i]));
+            }
+          }
+          return list;
+        },
+        updateNodeList = function(){
+          searchNodeList = preorderTraversal(body.get(0));
+          var tempLengthList = [], tempLength = 0;
+          if(searchNodeList.length){
+            for(var m in searchNodeList){
+              tempLength += (searchNodeList[m].data || searchNodeList[m].innerText).length;
+              tempLengthList.push(tempLength);
+            }
+          }
+          searchNodeLengthList = tempLengthList;
+        },
+        updateSearch = function(){
+          if(!searchText || !searchText.length) return;
+          rangeList = [];
+          var tempStr = '', tempOffset = 0;
+          for(var i = 0; i < searchNodeList.length; i++){
+            var nodeStr = (searchNodeList[i].data || searchNodeList[i].innerText);
+            tempStr += nodeStr;
+            var nodeLen = nodeStr.length, position = tempStr.indexOf(searchText, tempOffset);
+            while(position > -1){
+              var start = position, end = position + searchText.length, startNode = searchNodeList[0], endNode = searchNodeList[i], startOffset = start, endOffset = nodeLen + end - searchNodeLengthList[i];
+              for(var j = i-1; j >= 0; j--){
+                if(searchNodeLengthList[j] <= start){
+                  startNode = searchNodeList[j+1];
+                  startOffset = start - searchNodeLengthList[j];
+                  break;
+                }
+              }
+              rangeList.push(setRange(iframeDOM, startNode, startOffset, endNode, endOffset));
+              tempOffset = end + 1;
+              position = tempStr.indexOf(searchText, tempOffset);
+            }
+          }
+        },
+        showResult = function(index){
+          if(!rangeList.length) return;
+          var s = iframeWin.getSelection();
+          s.removeAllRanges();
+          if(index >= rangeList.length) index = rangeList.length - 1;
+          if(index < 0) index = 0;
+          s.addRange(rangeList[index]);
+        },
+        replaceText = function(range, replacement){
+          if(range.endContainer.insertData){
+            range.endContainer.insertData(range.endOffset, replacement);
+          }else{
+            range.endContainer.innerText = range.endContainer.innerText.slice(0, range.endOffset) + replacement + range.endContainer.innerText.slice(range.endOffset);
+          }
+          range.deleteContents();
+        };
+        layer.confirm(['<div class="layui-form">'
+          ,'<div class="layui-form-item">'
+          ,'<label class="layui-form-label" style="width: 55px;padding-left:0;">查找</label>'
+          ,'<div class="layui-input-block" style="margin-left: 70px"><input type="text" name="search" value="" autofocus="true" autocomplete="off" class="layui-input"></div>'
+          ,'</div>'
+          ,'<div class="layui-form-item">'
+          ,'<label class="layui-form-label" style="width: 55px;padding-left:0;">替换为</label>'
+          ,'<div class="layui-input-block" style="margin-left: 70px"><input type="text" name="replace" value="" autofocus="true" autocomplete="off" class="layui-input"></div>'
+          ,'</div>'
+          ,'</div>'].join(''), {
+            title: "查找与替换",
+            btn: ["查找", "向上查找", "替换", "全部替换", "关闭"],
+            success: function(layero, index){
+              updateNodeList();
+              layero.find("input[name=\"search\"]").on('input propertychange',function(){
+                searchText = $(this).val();
+                curIndex = -1;
+                updateSearch();
+              });
+            },
+            btn3: function(index, layero){
+              if(!rangeList.length || curIndex < 0 || curIndex >= rangeList.length) return false;
+              replaceText(rangeList[curIndex], layero.find('input[name="replace"]').val());
+              var oriLen = rangeList.length;
+              updateNodeList();
+              updateSearch();
+              if(!rangeList.length) return false;
+              if(rangeList.length == oriLen) curIndex += rangeList.length - oriLen + 1;
+              curIndex = curIndex % rangeList.length;
+              showResult(curIndex);
+              return false;
+            },
+            btn4: function(index, layero){
+              for(var i = rangeList.length-1; i >= 0; i--){
+                replaceText(rangeList[i], layero.find('input[name="replace"]').val());
+              }
+              updateNodeList();
+              updateSearch();
+              return false;
+            },
+            btn5: function(index, layero){
+            }
+          }, function (index, layero) {
+            curIndex++;
+            if(curIndex >= rangeList.length) curIndex = 0;
+            showResult(curIndex);
+          }, function (index) {
+            curIndex--;
+            if(curIndex < 0) curIndex = rangeList.length - 1;
+            showResult(curIndex);
+            return false;
+          });
       },
       //超链接
       link: function(range){
@@ -615,7 +758,7 @@
             }
           };
           upload.render({
-            url: uploadImage.url
+            url: uploadFile.url
             ,method: uploadFile.type
             ,accept: "file"
             ,acceptMime: "*/*"
@@ -632,6 +775,155 @@
             ,'lay-lang': pre.lang
           }, range);
         });
+      }
+      //插入表格
+      ,table: function (range) {
+        layer.confirm(['<div class="layui-form">'
+          ,'<div class="layui-form-item">'
+          ,'<label class="layui-form-label" style="width: 40px;padding-left:0;">行数</label>'
+          ,'<div class="layui-input-block" style="margin-left: 55px"><input type="text" name="row" value="" autofocus="true" autocomplete="off" class="layui-input"></div>'
+          ,'</div>'
+          ,'<div class="layui-form-item">'
+          ,'<label class="layui-form-label" style="width: 40px;padding-left:0;">列数</label>'
+          ,'<div class="layui-input-block" style="margin-left: 55px"><input type="text" name="col" value="" autofocus="true" autocomplete="off" class="layui-input"></div>'
+          ,'</div>'
+          ,'</div>'].join(''), {
+            title: "插入表格",
+            btn: ["确认", "取消"]
+          }, function (index, layero) {
+            var rowCount = parseInt(layero.find('input[name="row"]').val()), colCount = parseInt(layero.find('input[name="col"]').val());
+            if(isNaN(rowCount) || rowCount < 1) rowCount = 1;
+            if(isNaN(colCount) || colCount < 1) colCount = 1;
+            var html = '<table><tbody>';
+            for(var i = 0; i < rowCount; i++){
+              html += '<tr>';
+              for(var j = 0; j < colCount; j++){
+                html += '<td></td>';
+              }
+              html += '</tr>';
+            }
+            html += '</tbody></table>'
+            iframeDOM.execCommand('insertHTML', false, html);
+            layer.close(index);
+          }, function (index) {
+          });
+      }
+      ,setTableUnit: function (range) {
+        var container = getContainer(range), parents = $(container).parents(), td = null, tr = null, table = null;
+        if(container.tagName && (container.tagName.toLowerCase() === 'th' || container.tagName.toLowerCase() === 'td')){
+          td = container;
+        }
+        parents.each(function(){
+          if(this.tagName.toLowerCase() === 'th' || this.tagName.toLowerCase() === 'td'){
+            td = this;
+          }
+          if(this.tagName.toLowerCase() === 'tr'){
+            tr = this;
+          }
+          if(this.tagName.toLowerCase() === 'table'){
+            table = this;
+          }
+        });
+        var sameRow = [], sameCol = [], rowOrder = 0, colOrder = 0, temp = 0;
+        $(tr).children().each(function(){
+          sameRow.push(this);
+          if(this == td) colOrder = temp;
+          temp++;
+        });
+        temp = 0;
+        $(table).find('tr').each(function(){
+          sameCol.push($(this).children().get(colOrder));
+          if(this == tr) rowOrder = temp;
+          temp++;
+        });
+        layer.confirm(['<div class="layui-form layui-row">'
+          ,'<div class="layui-col-xs12 layui-col-md6"><div class="layui-form-item">'
+          ,'<label class="layui-form-label" style="width: 40px;padding-left:0;">行高</label>'
+          ,'<div class="layui-input-block" style="margin-left: 55px"><input type="text" name="row-height" value="" autofocus="true" autocomplete="off" class="layui-input" placeholder="auto"></div>'
+          ,'</div></div>'
+          ,'<div class="layui-col-xs12 layui-col-md6"><div class="layui-form-item">'
+          ,'<label class="layui-form-label" style="width: 40px;padding-left:0;">列宽</label>'
+          ,'<div class="layui-input-block" style="margin-left: 55px"><input type="text" name="col-width" value="" autofocus="true" autocomplete="off" class="layui-input" placeholder="auto"></div>'
+          ,'</div></div>'
+          ,'</div>'
+          ,'<div class="layui-btn-container">'
+          ,'<button type="button" class="layui-btn layui-btn-primary" data-operation="add-above">在上方添加行</button>'
+          ,'<button type="button" class="layui-btn layui-btn-primary" data-operation="add-beneath">在下方添加行</button>'
+          ,'<button type="button" class="layui-btn layui-btn-primary" data-operation="add-left">在左方添加列</button>'
+          ,'<button type="button" class="layui-btn layui-btn-primary" data-operation="add-right">在右方添加列</button>'
+          ,'<button type="button" class="layui-btn layui-btn-danger" data-operation="remove-row">删除该行</button>'
+          ,'<button type="button" class="layui-btn layui-btn-danger" data-operation="remove-col">删除该列</button>'
+          ,'</div>'].join(''), {
+            title: "设置单元格",
+            btn: ["确认", "取消"],
+            success: function(layero, index){
+              layero.find('input[name="row-height"]').val(td.style.height);
+              layero.find('input[name="col-width"]').val(td.style.width);
+              layero.find('button').click(function(){
+                var operation = $(this).attr('data-operation');
+                switch(operation){
+                  case 'add-above':
+                  var temp = '';
+                  for(var i = 0; i < $(tr).children().length; i++){
+                    temp += '<td></td>';
+                  }
+                  $(tr).before('<tr>'+temp+'</tr>');
+                  sameCol.push($($(table).find('tr').get(rowOrder)).children().get(colOrder));
+                  rowOrder++;
+                  break;
+                  case 'add-beneath':
+                  var temp = '';
+                  for(var i = 0; i < $(tr).children().length; i++){
+                    temp += '<td></td>';
+                  }
+                  $(tr).after('<tr>'+temp+'</tr>');
+                  sameCol.push($($(table).find('tr').get(rowOrder + 1)).children().get(colOrder));
+                  break;
+                  case 'add-left':
+                  for(var i = 0; i < sameCol.length; i++){
+                    $(sameCol[i]).before('<td></td>');
+                  }
+                  sameRow.push($(td).parent().children().get(colOrder));
+                  colOrder++;
+                  break;
+                  case 'add-right':
+                  for(var i = 0; i < sameCol.length; i++){
+                    $(sameCol[i]).after('<td></td>');
+                  }
+                  sameRow.push($(td).parent().children().get(colOrder + 1));
+                  break;
+                  case 'remove-row':
+                  if($(table).find('tr').length <= 1){
+                    $(table).remove();
+                  }else{
+                    $(tr).remove();
+                  }
+                  layer.close(index);
+                  break;
+                  case 'remove-col':
+                  if($(tr).children().length <= 1){
+                    $(table).remove();
+                  }else{
+                    for(var i = 0; i < sameCol.length; i++){
+                      $(sameCol[i]).remove();
+                    }
+                  }
+                  layer.close(index);
+                  break;
+                }
+              });
+            }
+          }, function (index, layero) {
+            var rowHeight = layero.find('input[name="row-height"]').val(), colWidth = layero.find('input[name="col-width"]').val(), i;
+            for(i = 0; i < sameRow.length; i++){
+              $(sameRow[i]).css('height',rowHeight);
+            }
+            for(i = 0; i < sameCol.length; i++){
+              $(sameCol[i]).css('width',colWidth);
+            }
+            layer.close(index);
+          }, function (index) {
+          });
       }
       //帮助
       ,help: function(){
@@ -843,6 +1135,10 @@
   //全部工具
   ,tools = {
     html: '<i class="layui-icon layedit-tool-html" title="HTML源代码" layedit-event="html">&#xe64b;</i>'
+    ,undo: '<i class="layui-icon layedit-tool-undo" title="撤销" lay-command="undo" style="transform: rotateY(180deg);-ms-transform:rotateY(180deg);-moz-transform:rotateY(180deg);-webkit-transform:rotateY(180deg);-o-transform:rotateY(180deg);">&#xe666;</i>'
+    ,redo: '<i class="layui-icon layedit-tool-redo" title="重做" lay-command="redo">&#xe666;</i>'
+    ,selectall: '<i class="layui-icon layedit-tool-selectall" title="全选" lay-command="selectAll">&#xe63c;</i>'
+    ,searchreplace: '<i class="layui-icon layedit-tool-searchreplace" title="查找与替换" layedit-event="searchreplace">&#xe615;</i>'
     ,strong: '<i class="layui-icon layedit-tool-b" title="加粗" lay-command="Bold" layedit-event="b">&#xe62b;</i>'
     ,italic: '<i class="layui-icon layedit-tool-i" title="斜体" lay-command="italic" layedit-event="i">&#xe644;</i>'
     ,underline: '<i class="layui-icon layedit-tool-u" title="下划线" lay-command="underline" layedit-event="u">&#xe646;</i>'
@@ -850,6 +1146,7 @@
     ,superscript: '<i class="layui-icon layedit-tool-sup" title="上标" lay-command="superscript" layedit-event="sup" style="line-height:2;">x<sup>2</sup></i>'
     ,subscript: '<i class="layui-icon layedit-tool-sub" title="下标" lay-command="subscript" layedit-event="sub" style="line-height:2;">x<sub>2</sub></i>'
     ,hr: '<i class="layui-icon layedit-tool-hr" title="水平分割线" lay-command="insertHorizontalRule" style="line-height:2;">—</i>'
+    ,removeformat: '<i class="layui-icon layedit-tool-removeformat" title="清除效果" lay-command="removeformat">&#xe616;</i>'
     
     ,'|': '<span class="layedit-tool-mid"></span>'
     
@@ -862,9 +1159,10 @@
     ,backgroundcolor: '<div class="layedit-tool-background-color" style="display:inline-block;vertical-align: bottom;margin:0 5px;" title="背景颜色"><div id="layedit-background-color-{{index}}"></div></div>'
     ,link: '<i class="layui-icon layedit-tool-link" title="插入链接" layedit-event="link">&#xe64c;</i>'
     ,unlink: '<i class="layui-icon layedit-tool-unlink layui-disabled" title="清除链接" lay-command="unlink" layedit-event="unlink">&#xe64d;</i>'
-    ,face: '<i class="layui-icon layedit-tool-face" title="表情" layedit-event="face">&#xe650;</i>'
-    ,image: '<i class="layui-icon layedit-tool-image" title="图片" layedit-event="image">&#xe64a;<input type="file" name="file"></i>'
-    ,file: '<i class="layui-icon layedit-tool-file" title="文件" layedit-event="file">&#xe655;<input type="file" name="file" style="position: absolute;font-size: 0;left: 0;top: 0;width: 100%;height: 100%;opacity: .01;filter: Alpha(opacity=1);cursor: pointer;"></i>'
+    ,face: '<i class="layui-icon layedit-tool-face" title="插入表情" layedit-event="face">&#xe650;</i>'
+    ,table: '<i class="layui-icon layedit-tool-table" title="插入表格" layedit-event="table" style="font-size:24px;">&#xe62d;</i><i class="layui-icon layedit-tool-table-unit" title="设置单元格" layedit-event="setTableUnit" style="font-size:20px;display:none;">&#xe610;</i>'
+    ,image: '<i class="layui-icon layedit-tool-image" title="插入图片" layedit-event="image">&#xe64a;<input type="file" name="file"></i>'
+    ,file: '<i class="layui-icon layedit-tool-file" title="插入文件" layedit-event="file">&#xe655;<input type="file" name="file" style="position: absolute;font-size: 0;left: 0;top: 0;width: 100%;height: 100%;opacity: .01;filter: Alpha(opacity=1);cursor: pointer;"></i>'
     ,code: '<i class="layui-icon layedit-tool-code" title="插入代码" layedit-event="code">&#xe64e;</i>'
     
     ,help: '<i class="layui-icon layedit-tool-help" title="帮助" layedit-event="help">&#xe607;</i>'
