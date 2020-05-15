@@ -89,7 +89,7 @@
         if(tools[item] && !hideTools[item]){
           node.push(tools[item]);
         }
-        if(set.customBtn[item] && set.customBtn[item].click){
+        if(set.customBtn && set.customBtn[item] && set.customBtn[item].click){
           node.push('<i class="layui-icon"' + (set.customBtn[item].title?' title="'+util.escape(set.customBtn[item].title)+'"':'') + ' layedit-custom-event="' + item + '">' + (util.escape(set.customBtn[item].icon || set.customBtn[item].text) || '&#xe857;') + '</i>');
         }
       });

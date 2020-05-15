@@ -162,7 +162,7 @@ layui.use('layedit', function(){
 
 [1]`previewCSS`参数：在预览界面应用的CSS文件，与`contentCSS`一样是字符串数组。
 
-[2]`renderer`参数：决定编辑器中的文本将以何种形式渲染在预览页面上，类型为函数。该函数的唯一参数为编辑器中未渲染的html，返回值为渲染后的html。
+[2]`previewRenderer`参数：决定编辑器中的文本将以何种形式渲染在预览页面上，类型为函数。该函数的唯一参数为编辑器中未渲染的html，返回值为渲染后的html。
 
 示例如下：
 
