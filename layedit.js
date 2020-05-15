@@ -6,13 +6,14 @@
     
  */
  
- layui.define(['layer', 'form', 'colorpicker'], function(exports){
+ layui.define(['layer', 'form', 'colorpicker', 'util'], function(exports){
   "use strict";
   
   var $ = layui.$
   ,layer = layui.layer
   ,form = layui.form
   ,colorpicker = layui.colorpicker
+  ,util = layui.util
   ,hint = layui.hint()
   ,device = layui.device()
   
@@ -73,9 +74,11 @@
     ,config = that.config
     ,ELEM = 'layui-layedit', textArea = $(typeof(id)=='string'?'#'+id:id)
     ,name =  'LAY_layedit_'+ (++that.index)
-    ,haveBuild = textArea.next('.'+ELEM)
+    ,haveBuild = textArea.next('.'+ELEM);
+
+    if(config.customBtn && settings.customBtn) settings.customBtn = $.extend({}, config.customBtn, settings.customBtn);
     
-    ,set = $.extend({}, config, settings)
+    var set = $.extend({}, config, settings)
     
     ,tool = function(){
       var node = [], hideTools = {};
@@ -85,6 +88,9 @@
       layui.each(set.tool, function(_, item){
         if(tools[item] && !hideTools[item]){
           node.push(tools[item]);
+        }
+        if(set.customBtn[item] && set.customBtn[item].click){
+          node.push('<i class="layui-icon"' + (set.customBtn[item].title?' title="'+util.escape(set.customBtn[item].title)+'"':'') + ' layedit-custom-event="' + item + '">' + (util.escape(set.customBtn[item].icon || set.customBtn[item].text) || '&#xe857;') + '</i>');
         }
       });
       return node.join('');
@@ -97,12 +103,12 @@
         case 'font-size-options':
         var ret = '';
         for(var k in that.config.fontSizeOptions){
-          ret += '<option value="' + that.config.fontSizeOptions[k] + '">' + that.config.fontSizeOptions[k] + '</option>';
+          ret += '<option value="' + util.escape(that.config.fontSizeOptions[k]) + '">' + util.escape(that.config.fontSizeOptions[k]) + '</option>';
         }
         return ret;
         case 'formatblock-options':
         for(var k in that.config.formatBlockOptions){
-          ret += '<option value="' + k + '">' + that.config.formatBlockOptions[k] + '</option>';
+          ret += '<option value="' + util.escape(k) + '">' + util.escape(that.config.formatBlockOptions[k]) + '</option>';
         }
         return ret;
       }
@@ -134,7 +140,7 @@
         var iframeWin = getWin(that.index);
         if(!iframeWin[0]) return;
         var iframeDOM = iframeWin[0].document, body = iframeDOM.body;
-        iframeDOM.execCommand('formatBlock', false, '<' + data.value + '>');
+        iframeDOM.execCommand('formatBlock', false, '<' + util.escape(data.value) + '>');
       });
     }
 
@@ -293,7 +299,8 @@
         ,'table th{position: relative; padding: 9px 15px; min-height: 20px; line-height: 20px; font-size: 14px; border-width: 1px; border-style: solid; border-color: #e6e6e6; text-align: left; font-weight: 400;}'
         ,'table tbody tr{transition: all .3s; -webkit-transition: all .3s;}'
         ,'table td{position: relative; padding: 9px 15px; min-height: 20px; line-height: 20px; font-size: 14px; border-width: 1px; border-style: solid; border-color: #e6e6e6;}'
-        ,(set.customCSS || '')
+        ,'ul,ol{margin-left: 2rem;}'
+        ,(util.escape(set.customCSS) || '')
         ,'</style>'].join(''))
       ,body = conts.find('body');
       
@@ -305,11 +312,11 @@
       }
       body.attr('contenteditable', 'true').css({
         'min-height': set.height
-      }).html(textArea.value?'<p>'+textArea.value+'</p>':'').bind('input propertychange', function(e) {
+      }).html(textArea.value?textArea.value:'').bind('input propertychange', function(e) {
         var nodes = body.get(0).childNodes;
         for(var i=0; i<nodes.length; i++){
           var $el = $(nodes[i]);
-          if(nodes[i].nodeName == '#text'){
+          if(nodes[i].nodeName.toLowerCase() === '#text'){
             $el.before('<p>'+nodes[i].data.replace(/ /g,'&nbsp;')+'</p>');
             $el.remove();
           }
@@ -354,7 +361,7 @@
             layer.msg('请暂时用shift+enter');
           return false;
         }
-        iframeDOM.execCommand('formatBlock', false, '<p>');
+        if(parentNode.tagName.toLowerCase() !== 'li' && parentNode.tagName.toLowerCase() !== 'ul' && parentNode.tagName.toLowerCase() !== 'ol') iframeDOM.execCommand('formatBlock', false, '<p>');
       }
     });
     
@@ -520,6 +527,13 @@
         item('table-unit').show().addClass(CHECK);
       }
 
+      if(tagName === 'ol'){
+        item('ol').addClass(CHECK);
+      }
+      if(tagName === 'ul'){
+        item('ul').addClass(CHECK);
+      }
+
       if(item('formatblock').find('option[value="'+tagName+'"]').length && !isBlockDetected){
         item('formatblock').find('input[type="text"]').val(item('formatblock').find('option[value="'+tagName+'"]').text());
         isBlockDetected = true;
@@ -560,6 +574,28 @@
           layer.close(index);
         }, function (index) {
 
+        });
+      },
+      //预览页面
+      preview: function () {
+        layer.open({
+          type: 1, 
+          title: '预览',
+          content: '<iframe id="preview" src="" style="border:none;width:100%;height:100%;"></iframe>',
+          area:['90%','90%'],
+          success: function (layero, index) {
+            var target = layero.find('#preview').get(0).contentWindow, pHead = target.document.head, pBody = target.document.body;
+            var renderer = function(text){
+              return text;
+            };
+            if(set.previewCSS && set.previewCSS.length){
+              for(var i = 0; i < set.previewCSS.length; i++){
+                $(pHead).append('<link rel="stylesheet" type="text/css" href="./layui/css/layui.css"><link rel="stylesheet" type="text/css" href="' + util.escape(set.previewCSS[i]) + '">');
+              }
+            }
+            if(typeof set.previewRenderer === 'function') renderer = set.previewRenderer;
+            pBody.innerHTML = renderer(body.html()) || '';
+          }
         });
       },
       //查找与替换
@@ -618,6 +654,18 @@
           if(index >= rangeList.length) index = rangeList.length - 1;
           if(index < 0) index = 0;
           s.addRange(rangeList[index]);
+          var con = getContainer(rangeList[index]), off = rangeList[index].endOffset;
+          while(!con.innerText){
+            var tempCon = $(con).parent().get(0);
+            for(var i = 0; i < tempCon.childNodes.length; i++){
+              if(tempCon.childNodes[i] == con) break;
+              off += (tempCon.childNodes[i].data || tempCon.childNodes[i].innerText).length;
+            }
+            con = tempCon;
+          }
+          var txt = con.innerText, progress = off / (txt.length + 1),
+          scroll = con.offsetTop + con.offsetHeight * progress - editor.find('iframe').height() / 2;
+          iframeWin.scrollTo(0, scroll);
         },
         replaceText = function(range, replacement){
           if(range.endContainer.insertData){
@@ -924,7 +972,7 @@
             layer.close(index);
           }, function (index) {
           });
-      }
+}
       //帮助
       ,help: function(){
         layer.open({
@@ -940,10 +988,11 @@
     }
     ,tools = editor.find('.layui-layedit-tool')
     
-    ,click = function(event, value){
+    ,click = function(event){
       var othis = $(this)
       ,events = event || othis.attr('layedit-event')
-      ,command = othis.attr('lay-command');
+      ,command = othis.attr('lay-command')
+      ,customEvent = othis.attr('layedit-custom-event');
       
       if(othis.hasClass(ABLED)) return;
 
@@ -960,8 +1009,10 @@
         setTimeout(function(){
           body.focus();
         }, 10);
+      } else if(customEvent && set.customBtn[customEvent] && set.customBtn[customEvent].click) {
+        set.customBtn[customEvent].click(iframeWin, range);
       } else {
-        toolEvent[events] && toolEvent[events].call(this, range, value);
+        toolEvent[events] && toolEvent[events].call(this, range);
       }
       toolCheck.call(iframeWin, tools, othis);
     }
@@ -1135,6 +1186,7 @@
   //全部工具
   ,tools = {
     html: '<i class="layui-icon layedit-tool-html" title="HTML源代码" layedit-event="html">&#xe64b;</i>'
+    ,preview: '<i class="layui-icon layedit-tool-preview" title="预览" layedit-event="preview">&#xe663;</i>'
     ,undo: '<i class="layui-icon layedit-tool-undo" title="撤销" lay-command="undo" style="transform: rotateY(180deg);-ms-transform:rotateY(180deg);-moz-transform:rotateY(180deg);-webkit-transform:rotateY(180deg);-o-transform:rotateY(180deg);">&#xe666;</i>'
     ,redo: '<i class="layui-icon layedit-tool-redo" title="重做" lay-command="redo">&#xe666;</i>'
     ,selectall: '<i class="layui-icon layedit-tool-selectall" title="全选" lay-command="selectAll">&#xe63c;</i>'
@@ -1153,6 +1205,8 @@
     ,left: '<i class="layui-icon layedit-tool-left" title="左对齐" lay-command="justifyLeft" layedit-event="left">&#xe649;</i>'
     ,center: '<i class="layui-icon layedit-tool-center" title="居中对齐" lay-command="justifyCenter" layedit-event="center">&#xe647;</i>'
     ,right: '<i class="layui-icon layedit-tool-right" title="右对齐" lay-command="justifyRight" layedit-event="right">&#xe648;</i>'
+    ,ol: '<i class="layui-icon layedit-tool-ol" title="有序列表" lay-command="insertOrderedList" layedit-event="ol" style="position:relative;"><div style="position:absolute;top:0;bottom:50%;left:0;right:0;font-size:10px;line-height:1.75;">1.—</div><div style="position:absolute;top:50%;bottom:0;left:0;right:0;font-size:10px;line-height:1.25;">2.—</div></i>'
+    ,ul: '<i class="layui-icon layedit-tool-ul" title="无序列表" lay-command="insertUnorderedList" layedit-event="ul" style="position:relative;"><div style="position:absolute;top:0;bottom:50%;left:0;right:0;font-size:10px;line-height:1.75;">· —</div><div style="position:absolute;top:50%;bottom:0;left:0;right:0;font-size:10px;line-height:1.25;">· —</div></i>'
     ,formatblock: '<div class="layedit-tool-formatblock" style="display:inline-block;width:8rem;vertical-align: bottom;font-size:1rem;margin:0 5px;" title="字体格式"><select lay-filter="layedit-formatblock-{{index}}">{{formatblock-options}}</select></div>'
     ,fontsize: '<div class="layedit-tool-font-size" style="display:inline-block;width:8rem;vertical-align: bottom;font-size:1rem;margin:0 5px;" title="字体大小"><select lay-filter="layedit-font-size-{{index}}">{{font-size-options}}</select></div>'
     ,fontcolor: '<div class="layedit-tool-font-color" style="display:inline-block;vertical-align: bottom;margin:0 5px;" title="文字颜色"><div id="layedit-font-color-{{index}}"></div></div>'

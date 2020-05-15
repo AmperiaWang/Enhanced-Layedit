@@ -153,3 +153,69 @@ layui.use('layedit', function(){
 	var index = layedit.build('demo'); //建立编辑器
 });
 ```
+
+## 2020年5月15日更新
+
+1. 使查找时页面能够跳转到目标处（由于高度是实时计算的，会稍微有一些不准确，不过目前暂时找不出更好的办法。如果您有更好的办法，可以联系我或是fork到您的仓库中修改）
+
+2. 增加预览（`preview`）工具，您可以预览发表后文章的效果。工具的启用/禁用可以在`tool`参数中设置，另外还有一些参数可以通过在`set()`函数中传入属性设置：
+
+[1]`previewCSS`参数：在预览界面应用的CSS文件，与`contentCSS`一样是字符串数组。
+
+[2]`renderer`参数：决定编辑器中的文本将以何种形式渲染在预览页面上，类型为函数。该函数的唯一参数为编辑器中未渲染的html，返回值为渲染后的html。
+
+示例如下：
+
+```
+<html>
+	<head>
+		<link rel="stylesheet" type="text/css" href="path/to/layui/css/layui.css">
+		<script type="text/javascript" src="path/to/layui/layui.js"></script>
+		<script src="https://cdn.bootcdn.net/ajax/libs/mustache.js/3.1.0/mustache.min.js"></script>
+	</head>
+	<body>
+		<div id="layedit-demo"></div>
+		<script type="text/javascript">
+		var layedit, index;
+		layui.use('layedit', function(){
+			layedit = layui.layedit;
+			layedit.set({
+				tool: ['html', 'preview', '|', 'strong', 'italic', 'underline', 'del', '|', 'left', 'center', 'right', '|', 'link', 'unlink', 'table', 'face', 'image'],
+				previewRenderer: function(html){ //参数为渲染前的html
+					return Mustache.render(html, {
+						id: 1,
+						name: '张三'
+					}); //返回值为渲染后的html
+				}
+			});
+			index = layedit.build('layedit-demo');
+		});
+		</script>
+	</body>
+</html>
+```
+
+3. 允许通过在`set()`函数中传入`customBtn`参数以自定义按钮。`customBtn`参数类型为Object，各键名为方法名，键值也为Object，其中`icon`属性和`text`属性均为给按钮设置图标/显示文字，`title`属性设置其标题，`click`属性为它被按下时的回调函数。在设置好按钮之后，您应该在`tool`中注册该按钮。示例如下：
+
+```
+layui.use('layedit', function(){
+	var layedit = layui.layedit;
+
+	layedit.set({
+		tool: ['html', '|', 'strong', 'italic', 'underline', 'del', '|' ,'left', 'center', 'right', '|', 'link', 'unlink', 'face', 'image', 'test'] //需要在工具栏中注册该按钮
+		customBtn: {
+			'test':{
+				icon:'测试', //图标或显示的文字
+				title:'测试一下', //按钮的title属性
+				click:function(window, range){ //按下按钮之后执行的函数
+					console.log(window, range);
+				}
+			}
+		}
+	});
+
+	var index = layedit.build('demo'); //建立编辑器
+});
+```
+
+4. 新增添加有序列表（`ol`）和无序列表（`ul`）工具。相关工具可以在`tool`中设置。
